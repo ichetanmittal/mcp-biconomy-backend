@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { mcpClient } from './mcpClient.js';
 
 dotenv.config();
@@ -18,7 +18,8 @@ app.get('/', (req, res) => {
   res.json({
     name: 'MCP Backend API',
     version: '1.0.0',
-    description: 'Express backend for Claude AI with Blockza Podcasts MCP integration',
+    description: 'Express backend for OpenAI GPT with Blockza Podcasts MCP integration',
+    aiProvider: 'OpenAI GPT-4',
     endpoints: {
       health: 'GET /api/health',
       tools: 'GET /api/tools',
@@ -30,9 +31,9 @@ app.get('/', (req, res) => {
   });
 });
 
-// Initialize Anthropic client
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 // Health check endpoint
@@ -69,70 +70,73 @@ app.post('/api/chat', async (req, res) => {
 
     console.log('💬 Processing chat request...');
 
-    // Clean messages - remove any extra properties that Claude API doesn't accept
+    // Clean messages - remove any extra properties
     const cleanedMessages = messages.map(msg => ({
       role: msg.role,
       content: msg.content
     }));
 
-    // Get MCP tools and transform to Claude format
+    // Get MCP tools and transform to OpenAI function calling format
     const mcpTools = mcpClient.getTools();
-    const claudeTools = mcpTools.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.inputSchema
+    const openaiTools = mcpTools.map(tool => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema
+      }
     }));
 
-    // Call Claude API
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 4096,
+    // Call OpenAI API with function calling
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4-turbo-preview',
       messages: cleanedMessages,
-      tools: claudeTools,
+      tools: openaiTools,
+      tool_choice: 'auto',
     });
 
-    console.log(`📊 Response: ${response.stop_reason}`);
+    const message = response.choices[0].message;
+    console.log(`📊 Response: ${message.tool_calls ? 'tool_calls' : 'text'}`);
 
-    // Handle tool use
-    if (response.stop_reason === 'tool_use') {
+    // Handle tool calls
+    if (message.tool_calls && message.tool_calls.length > 0) {
       const toolResults = [];
 
-      for (const block of response.content) {
-        if (block.type === 'tool_use') {
-          console.log(`🔧 Tool requested: ${block.name}`);
+      for (const toolCall of message.tool_calls) {
+        console.log(`🔧 Tool requested: ${toolCall.function.name}`);
 
-          try {
-            // Call MCP tool
-            const result = await mcpClient.callTool(block.name, block.input);
+        try {
+          const args = JSON.parse(toolCall.function.arguments);
+          // Call MCP tool
+          const result = await mcpClient.callTool(toolCall.function.name, args);
 
-            toolResults.push({
-              tool_use_id: block.id,
-              name: block.name,
-              input: block.input,
-              result: result,
-            });
-          } catch (error) {
-            console.error(`Tool execution error:`, error);
-            toolResults.push({
-              tool_use_id: block.id,
-              name: block.name,
-              input: block.input,
-              error: error.message,
-            });
-          }
+          toolResults.push({
+            tool_call_id: toolCall.id,
+            name: toolCall.function.name,
+            arguments: args,
+            result: result,
+          });
+        } catch (error) {
+          console.error(`Tool execution error:`, error);
+          toolResults.push({
+            tool_call_id: toolCall.id,
+            name: toolCall.function.name,
+            arguments: JSON.parse(toolCall.function.arguments),
+            error: error.message,
+          });
         }
       }
 
       // Send response with tool results
       res.json({
-        response: response,
+        response: message,
         toolResults: toolResults,
         needsToolResponse: true,
       });
     } else {
       // Regular text response
       res.json({
-        response: response,
+        response: message,
         needsToolResponse: false,
       });
     }
@@ -153,48 +157,47 @@ app.post('/api/chat/continue', async (req, res) => {
       content: msg.content
     }));
 
-    // Build tool result content
-    const toolResultContent = toolResults.map((tr) => ({
-      type: 'tool_result',
-      tool_use_id: tr.tool_use_id,
+    // Build tool result messages for OpenAI format
+    const toolResultMessages = toolResults.map((tr) => ({
+      role: 'tool',
+      tool_call_id: tr.tool_call_id,
       content: tr.error ? `Error: ${tr.error}` : JSON.stringify(tr.result),
     }));
 
-    // Proper conversation flow:
-    // 1. Previous messages (cleaned, user messages + any previous assistant messages)
-    // 2. Assistant message with tool_use
-    // 3. User message with tool_result
+    // Proper conversation flow for OpenAI:
+    // 1. Previous messages
+    // 2. Assistant message with tool_calls
+    // 3. Tool result messages
     const updatedMessages = [
       ...cleanedMessages,
-      {
-        role: 'assistant',
-        content: assistantResponse.content, // The assistant's tool_use message
-      },
-      {
-        role: 'user',
-        content: toolResultContent, // Tool results must be in user message
-      },
+      assistantResponse, // The assistant's message with tool_calls
+      ...toolResultMessages, // Tool results as separate messages
     ];
 
-    // Get MCP tools and transform to Claude format
+    // Get MCP tools and transform to OpenAI format
     const mcpTools = mcpClient.getTools();
-    const claudeTools = mcpTools.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.inputSchema
+    const openaiTools = mcpTools.map(tool => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema
+      }
     }));
 
-    // Continue conversation with Claude
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 4096,
+    // Continue conversation with OpenAI
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4-turbo-preview',
       messages: updatedMessages,
-      tools: claudeTools,
+      tools: openaiTools,
+      tool_choice: 'auto',
     });
 
+    const message = response.choices[0].message;
+
     res.json({
-      response: response,
-      needsToolResponse: response.stop_reason === 'tool_use',
+      response: message,
+      needsToolResponse: message.tool_calls && message.tool_calls.length > 0,
     });
   } catch (error) {
     console.error('❌ Continue chat error:', error);
