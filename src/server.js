@@ -13,6 +13,23 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    name: 'MCP Backend API',
+    version: '1.0.0',
+    description: 'Express backend for Claude AI with Blockza Podcasts MCP integration',
+    endpoints: {
+      health: 'GET /api/health',
+      tools: 'GET /api/tools',
+      chat: 'POST /api/chat',
+      chatContinue: 'POST /api/chat/continue'
+    },
+    mcpServer: 'https://blockza.fastmcp.app/mcp',
+    status: mcpClient.isReady() ? 'Connected' : 'Disconnected'
+  });
+});
+
 // Initialize Anthropic client
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -202,4 +219,13 @@ async function startServer() {
   });
 }
 
-startServer();
+// Start server only if not in Vercel environment
+if (process.env.VERCEL !== '1') {
+  startServer();
+} else {
+  // Initialize MCP client for Vercel serverless
+  mcpClient.initialize().catch(err => console.error('MCP init error:', err));
+}
+
+// Export for Vercel serverless
+export default app;
