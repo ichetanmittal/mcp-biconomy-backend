@@ -10,7 +10,7 @@ class MCPClientManager {
 
   async initialize() {
     try {
-      console.log('🔌 Connecting to Biconomy MCP server...');
+      console.log('🔌 Connecting to Blockza Podcasts MCP server...');
 
       // Create MCP client
       this.client = new Client(
@@ -23,9 +23,9 @@ class MCPClientManager {
         }
       );
 
-      // Connect to Biconomy MCP server via HTTP transport
+      // Connect to Blockza Podcasts MCP server via HTTP transport
       const transport = new StreamableHTTPClientTransport(
-        new URL('https://docs.biconomy.io/mcp')
+        new URL('https://blockza.fastmcp.app/mcp')
       );
 
       await this.client.connect(transport);
@@ -35,7 +35,7 @@ class MCPClientManager {
       const toolsList = await this.client.listTools();
       this.tools = toolsList.tools;
 
-      console.log('✅ Connected to Biconomy MCP server');
+      console.log('✅ Connected to Blockza Podcasts MCP server');
       console.log(`📦 Available tools: ${this.tools.length}`);
       this.tools.forEach((tool) => {
         console.log(`   - ${tool.name}: ${tool.description}`);
