@@ -47,8 +47,14 @@ app.get('/api/health', (req, res) => {
 });
 
 // Get available MCP tools
-app.get('/api/tools', (req, res) => {
+app.get('/api/tools', async (_req, res) => {
   try {
+    // Ensure MCP client is initialized (for serverless environments)
+    if (!mcpClient.isReady()) {
+      console.log('🔄 MCP client not ready, initializing...');
+      await mcpClient.initialize();
+    }
+
     const tools = mcpClient.getTools();
     res.json({ tools });
   } catch (error) {
@@ -65,8 +71,13 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Messages array is required' });
     }
 
+    // Ensure MCP client is initialized (for serverless environments)
     if (!mcpClient.isReady()) {
-      return res.status(503).json({ error: 'MCP client not connected' });
+      console.log('🔄 MCP client not ready, initializing...');
+      const connected = await mcpClient.initialize();
+      if (!connected) {
+        return res.status(503).json({ error: 'MCP client failed to connect' });
+      }
     }
 
     console.log('💬 Processing chat request...');
@@ -150,6 +161,15 @@ app.post('/api/chat', async (req, res) => {
 // Continue conversation after tool use
 app.post('/api/chat/continue', async (req, res) => {
   try {
+    // Ensure MCP client is initialized (for serverless environments)
+    if (!mcpClient.isReady()) {
+      console.log('🔄 MCP client not ready, initializing...');
+      const connected = await mcpClient.initialize();
+      if (!connected) {
+        return res.status(503).json({ error: 'MCP client failed to connect' });
+      }
+    }
+
     const { messages, toolResults, assistantResponse } = req.body;
 
     // Clean messages - remove any extra properties (isToolCall, isError, etc.)
