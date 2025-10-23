@@ -139,10 +139,45 @@ app.post('/api/chat', async (req, res) => {
         }
       }
 
-      // Send response with tool results
+      // Check if any tool result contains event cards
+      let eventCardsData = null;
+      for (const tr of toolResults) {
+        if (!tr.error && tr.result) {
+          let resultStr = tr.result;
+
+          // Handle if result is an object with content array (from MCP)
+          if (typeof tr.result === 'object') {
+            if (tr.result.content && Array.isArray(tr.result.content)) {
+              // Extract text from content array
+              const textContent = tr.result.content.find(c => c.type === 'text');
+              if (textContent && textContent.text) {
+                resultStr = textContent.text;
+              }
+            } else if (tr.result.result) {
+              resultStr = tr.result.result;
+            }
+          }
+
+          // Try to parse the result string
+          if (typeof resultStr === 'string') {
+            try {
+              const parsed = JSON.parse(resultStr);
+              if (parsed.type === 'event_cards') {
+                eventCardsData = parsed;
+                break;
+              }
+            } catch {
+              // Not JSON or not event cards, continue
+            }
+          }
+        }
+      }
+
+      // Send response with tool results and event cards if found
       res.json({
         response: message,
         toolResults: toolResults,
+        eventCards: eventCardsData,
         needsToolResponse: true,
       });
     } else {
@@ -216,8 +251,45 @@ app.post('/api/chat/continue', async (req, res) => {
 
     const message = response.choices[0].message;
 
+    // Extract event cards from tool results if they exist
+    let eventCardsData = null;
+    if (req.body.toolResults) {
+      for (const tr of req.body.toolResults) {
+        if (!tr.error && tr.result) {
+          let resultStr = tr.result;
+
+          // Handle if result is an object with content array (from MCP)
+          if (typeof tr.result === 'object') {
+            if (tr.result.content && Array.isArray(tr.result.content)) {
+              // Extract text from content array
+              const textContent = tr.result.content.find(c => c.type === 'text');
+              if (textContent && textContent.text) {
+                resultStr = textContent.text;
+              }
+            } else if (tr.result.result) {
+              resultStr = tr.result.result;
+            }
+          }
+
+          // Try to parse the result string
+          if (typeof resultStr === 'string') {
+            try {
+              const parsed = JSON.parse(resultStr);
+              if (parsed.type === 'event_cards') {
+                eventCardsData = parsed;
+                break;
+              }
+            } catch {
+              // Not JSON or not event cards, continue
+            }
+          }
+        }
+      }
+    }
+
     res.json({
       response: message,
+      eventCards: eventCardsData,
       needsToolResponse: message.tool_calls && message.tool_calls.length > 0,
     });
   } catch (error) {

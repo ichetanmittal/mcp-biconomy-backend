@@ -10,7 +10,9 @@ class MCPClientManager {
 
   async initialize() {
     try {
-      console.log('🔌 Connecting to Blockza Podcasts MCP server...');
+      // Get MCP server URL from environment or use defaults
+      const mcpUrl = process.env.MCP_SERVER_URL || 'http://localhost:8000/mcp';
+      console.log(`🔌 Connecting to MCP server at ${mcpUrl}...`);
 
       // Create MCP client
       this.client = new Client(
@@ -23,9 +25,9 @@ class MCPClientManager {
         }
       );
 
-      // Connect to Blockza Podcasts MCP server via HTTP transport
+      // Connect to MCP server via HTTP transport
       const transport = new StreamableHTTPClientTransport(
-        new URL('https://blockza.fastmcp.app/mcp')
+        new URL(mcpUrl)
       );
 
       await this.client.connect(transport);
@@ -35,7 +37,7 @@ class MCPClientManager {
       const toolsList = await this.client.listTools();
       this.tools = toolsList.tools;
 
-      console.log('✅ Connected to Blockza Podcasts MCP server');
+      console.log('✅ Connected to MCP server');
       console.log(`📦 Available tools: ${this.tools.length}`);
       this.tools.forEach((tool) => {
         console.log(`   - ${tool.name}: ${tool.description}`);
