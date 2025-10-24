@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import { mcpClient } from './mcpClient.js';
+import { signUpUser, signInUser, signOutUser, getUserSession } from './supabaseAuth.js';
 
 dotenv.config();
 
@@ -44,6 +45,96 @@ app.get('/api/health', (req, res) => {
     mcpConnected: mcpClient.isReady(),
     timestamp: new Date().toISOString(),
   });
+});
+
+// Auth endpoints
+// Sign up
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const result = await signUpUser(email, password);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({
+      success: true,
+      user: result.user,
+      session: result.session,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sign in
+app.post('/api/auth/signin', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const result = await signInUser(email, password);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({
+      success: true,
+      user: result.user,
+      session: result.session,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sign out
+app.post('/api/auth/signout', async (req, res) => {
+  try {
+    const result = await signOutUser();
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get user session
+app.post('/api/auth/session', async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Token is required' });
+    }
+
+    const result = await getUserSession(token);
+
+    if (!result.success) {
+      return res.status(401).json({ error: result.error });
+    }
+
+    res.json({
+      success: true,
+      user: result.user,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get available MCP tools
