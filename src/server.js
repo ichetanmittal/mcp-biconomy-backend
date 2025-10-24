@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import { mcpClient } from './mcpClient.js';
 import { signUpUser, signInUser, signOutUser, getUserSession } from './supabaseAuth.js';
+import { createChat, getUserChats, getChatWithMessages, addMessageToChat, updateChatTitle, deleteChat } from './chatDatabase.js';
 
 dotenv.config();
 
@@ -14,6 +15,21 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Increase limit for large event data
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// Middleware to extract user from auth token
+const extractUser = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    const result = await getUserSession(token);
+    if (result.success) {
+      req.user = result.user;
+    }
+  }
+  next();
+};
+
+app.use(extractUser);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -132,6 +148,142 @@ app.post('/api/auth/session', async (req, res) => {
       success: true,
       user: result.user,
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Chat endpoints (require authentication)
+// Create a new chat
+app.post('/api/chats', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { title } = req.body;
+    if (!title) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    const result = await createChat(req.user.id, title);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all chats for user
+app.get('/api/chats', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const result = await getUserChats(req.user.id);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get specific chat with messages
+app.get('/api/chats/:chatId', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { chatId } = req.params;
+    const result = await getChatWithMessages(chatId, req.user.id);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add message to chat
+app.post('/api/chats/:chatId/messages', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { chatId } = req.params;
+    const { role, content } = req.body;
+
+    if (!role || !content) {
+      return res.status(400).json({ error: 'Role and content are required' });
+    }
+
+    const result = await addMessageToChat(chatId, role, content, req.user.id);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update chat title
+app.patch('/api/chats/:chatId', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { chatId } = req.params;
+    const { title } = req.body;
+
+    if (!title) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    const result = await updateChatTitle(chatId, title, req.user.id);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete chat
+app.delete('/api/chats/:chatId', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { chatId } = req.params;
+    const result = await deleteChat(chatId, req.user.id);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
